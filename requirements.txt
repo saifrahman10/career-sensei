@@ -1,0 +1,14 @@
+langchain==0.3.7
+langchain-community==0.3.7
+langchain-core==0.3.21
+langchain-text-splitters==0.3.2
+langchain-chroma==0.1.4
+langchain-google-genai==2.0.1
+chromadb
+google-generativeai
+streamlit
+pdfplumber
+python-docx
+python-dotenv
+requests
+beautifulsoup4

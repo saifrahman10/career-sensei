@@ -1,0 +1,26 @@
+# Environments
+venv/
+env/
+.env
+.venv
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# IDEs
+.vscode/
+.idea/
+.gemini/
+
+# Streamlit
+.streamlit/
+
+# Non-app files
+Practice/
+Data/
+basic_rag.py
+test_rag.py
+chroma_gap_db/
+chroma_langchain_db/
