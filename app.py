@@ -102,7 +102,7 @@ else:
                     with st.spinner("Running analysis — this takes about 30 seconds..."):
                         gap_chain, chat_chain, memory, vectorstore = build_chains(resume_text, job_desc)
                         analysis = run_gap_analysis(gap_chain, job_desc)
-                        seed_chat_memory(memory, analysis, vectorstore)
+                        seed_chat_memory(memory, analysis, vectorstore, job_desc)
 
                     st.session_state.analysis     = analysis
                     st.session_state.gap_chain    = gap_chain

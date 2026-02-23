@@ -67,11 +67,12 @@ class AnalysisResult:
 # ── Chain builder ─────────────────────────────────────────────────────────────
 def build_chains(resume_text: str, job_description: str):
     """
-    Embed the resume AND job description into a shared in-memory vector store,
-    then return a (gap_chain, chat_chain, memory) tuple.
+    Embed the resume into an in-memory vector store and return a
+    (gap_chain, chat_chain, memory, vectorstore) tuple.
 
-    Call seed_chat_memory(memory, analysis) after you have run the gap analysis
-    to give the chatbot full context from the start.
+    Only the resume is embedded initially so the gap-analysis retriever
+    always surfaces resume content.  Call seed_chat_memory() afterwards
+    to inject the job description into the store for the chatbot.
 
     Args:
         resume_text:     Plain text of the candidate's resume.
@@ -81,19 +82,16 @@ def build_chains(resume_text: str, job_description: str):
         chunk_size=CHUNK_SIZE, chunk_overlap=CHUNK_OVERLAP
     )
 
-    # Tag each chunk with its source so the model can distinguish them
+    # Only embed the resume so the retriever always returns resume content.
+    # The job description is passed directly via the prompt's {question} variable,
+    # so it does NOT need to be in the vector store.
     resume_chunks = splitter.split_text(resume_text)
     resume_docs   = [f"[RESUME] {c}" for c in resume_chunks]
-
-    job_chunks    = splitter.split_text(job_description)
-    job_docs      = [f"[JOB DESCRIPTION] {c}" for c in job_chunks]
-
-    all_chunks = resume_docs + job_docs
 
     # Embed + in-memory store
     embeddings  = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
     vectorstore = Chroma.from_texts(
-        texts=all_chunks,
+        texts=resume_docs,
         embedding=embeddings,
         collection_name="resume_session",
     )
@@ -128,13 +126,18 @@ def build_chains(resume_text: str, job_description: str):
     return gap_chain, chat_chain, memory, vectorstore
 
 
-def seed_chat_memory(memory: ConversationBufferMemory, analysis: AnalysisResult, vectorstore=None) -> None:
+def seed_chat_memory(
+    memory: ConversationBufferMemory,
+    analysis: AnalysisResult,
+    vectorstore=None,
+    job_description: str = "",
+) -> None:
     """
     Prime the chatbot memory with the completed gap analysis so that follow-up
     questions have full context about the job and candidate fit.
 
-    Also adds the analysis as searchable text in the vector store so the
-    retriever can find it when answering follow-up questions.
+    Also adds the analysis *and* job description as searchable text in the
+    vector store so the retriever can find them when answering follow-ups.
     """
     # Build a rich text summary of the analysis
     analysis_text = (
@@ -146,9 +149,12 @@ def seed_chat_memory(memory: ConversationBufferMemory, analysis: AnalysisResult,
         f"Experience Suggestions:\n{analysis.suggestions}"
     )
 
-    # Add to vector store so the retriever can find it
+    # Add analysis + job description to vector store for chatbot follow-ups
     if vectorstore is not None:
-        vectorstore.add_texts([analysis_text])
+        extra_texts = [analysis_text]
+        if job_description:
+            extra_texts.append(f"[JOB DESCRIPTION] {job_description}")
+        vectorstore.add_texts(extra_texts)
 
     seed_human = (
         "I just completed a gap analysis comparing my resume to this job. "
