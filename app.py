@@ -98,6 +98,7 @@ else:
             if not job_desc:
                 st.error("Could not load that URL. Try a different job board or link.")
             else:
+                _ok = False
                 try:
                     with st.spinner("Running analysis — this takes about 30 seconds..."):
                         gap_chain, chat_chain, memory, vectorstore = build_chains(resume_text, job_desc)
@@ -108,7 +109,7 @@ else:
                     st.session_state.gap_chain    = gap_chain
                     st.session_state.chat_chain   = chat_chain
                     st.session_state.chat_history = []
-                    st.rerun()
+                    _ok = True
                 except Exception as e:
                     err = str(e).lower()
                     if "429" in err or "quota" in err or "resourceexhausted" in err.replace(" ", ""):
@@ -121,6 +122,9 @@ else:
                             "Something went wrong while running the analysis. "
                             "Please try again in a moment."
                         )
+
+                if _ok:
+                    st.rerun()
 
     if st.session_state.analysis:
         results_layout(st.session_state.analysis)
