@@ -11,6 +11,15 @@ This file only handles:
 """
 
 import streamlit as st
+import os
+
+# ── Streamlit Cloud ChromaDB SQLite Patch ─────────────────────────────────────
+# ChromaDB requires SQLite > 3.35.0. Streamlit Cloud's default environment
+# often has an older version. We patch it here before any Chroma imports.
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+
 from dotenv import load_dotenv
 
 from src.rag.utils import extract_resume_text, fetch_job_description

@@ -12,3 +12,4 @@ python-docx
 python-dotenv
 requests
 beautifulsoup4
+pysqlite3-binary
