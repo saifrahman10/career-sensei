@@ -216,6 +216,25 @@ else:
                         # (embeddings, LLM call, vectorstore init, etc.).
                         st.code(traceback.format_exc())
 
+            # If parsing failed to produce core sections, show the raw model output
+            # so the UI never appears "broken" during demos.
+            if _ok:
+                missing_core = (
+                    not str(st.session_state.analysis.strengths or "").strip()
+                    or not str(st.session_state.analysis.gaps or "").strip()
+                    or not str(st.session_state.analysis.suggestions or "").strip()
+                )
+                parse_fallback_markers = (
+                    "could not parse strengths" in str(st.session_state.analysis.strengths or "").lower()
+                    or "could not parse gaps" in str(st.session_state.analysis.gaps or "").lower()
+                    or "could not parse suggestions" in str(st.session_state.analysis.suggestions or "").lower()
+                )
+                if missing_core or parse_fallback_markers:
+                    st.warning(
+                        "We generated a response, but section parsing was partial. "
+                        "Please click Analyze once more; if this persists, use the raw output in Debug details."
+                    )
+
             if _ok:
                 st.rerun()
 

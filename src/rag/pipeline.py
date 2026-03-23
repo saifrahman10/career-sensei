@@ -6,6 +6,7 @@ LLM prompts, and output parsing.
 """
 
 import re
+import os
 from dataclasses import dataclass
 from typing import Optional
 import tempfile
@@ -22,7 +23,9 @@ from langchain.schema import HumanMessage, AIMessage
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 EMBEDDING_MODEL  = "models/gemini-embedding-001"
-LLM_MODEL        = "gemini-2.5-flash-lite-preview-09-2025"
+# Use a stable default model; preview or older variants can be revoked for new users.
+# Allow override via env var so model changes do not require code edits.
+LLM_MODEL        = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
 CHUNK_SIZE       = 600
 CHUNK_OVERLAP    = 40
 TOP_K            = 8
@@ -201,20 +204,136 @@ def parse_analysis(raw_output: str) -> AnalysisResult:
     Parse the structured LLM response into an AnalysisResult dataclass.
     Falls back gracefully if a section is missing.
     """
-    def get_section(name: str) -> str:
-        pattern = rf"##\s*{name}\s*\n(.*?)(?=\n##|\Z)"
-        match = re.search(pattern, raw_output, re.IGNORECASE | re.DOTALL)
-        return match.group(1).strip() if match else ""
+    cleaned = raw_output.replace("**", "").strip()
+    lines = [ln.rstrip() for ln in cleaned.splitlines()]
+
+    section_aliases = {
+        "match_score": ("match score", "score"),
+        "job_summary": ("job summary", "role summary", "summary"),
+        "strengths": ("key strengths", "strengths"),
+        "gaps": ("key gaps", "gaps"),
+        "suggestions": ("experience suggestions", "suggestions", "action plan", "recommendations"),
+    }
+
+    def _normalize_header_text(line: str) -> str:
+        txt = line.strip().lower()
+        txt = re.sub(r"^#+\s*", "", txt)   # markdown headings
+        txt = re.sub(r"^[\-\*\u2022]\s*", "", txt)  # bullets
+        txt = txt.rstrip(":").strip()
+        return txt
+
+    def _detect_section(line: str) -> Optional[str]:
+        txt = _normalize_header_text(line)
+        for key, aliases in section_aliases.items():
+            for alias in aliases:
+                if txt == alias:
+                    return key
+        return None
 
     score = None
-    score_match = re.search(r"##\s*MATCH SCORE\s*\n+(\d+)", raw_output, re.IGNORECASE)
+    # Try strict structured score first
+    score_match = re.search(r"(?:^|\n)\s*#+\s*MATCH SCORE\s*:?\s*\n+(\d{1,3})\b", cleaned, re.IGNORECASE)
+    if not score_match:
+        # Fallback: "Match score: 74/100" or similar
+        score_match = re.search(r"match\s*score[^0-9]{0,20}(\d{1,3})\b", cleaned, re.IGNORECASE)
     if score_match:
         score = int(score_match.group(1))
+        score = max(0, min(100, score))
+
+    # 1) Line-based parser (handles plain labels and markdown headings)
+    buckets = {
+        "match_score": [],
+        "job_summary": [],
+        "strengths": [],
+        "gaps": [],
+        "suggestions": [],
+    }
+    current = None
+    for ln in lines:
+        sec = _detect_section(ln)
+        if sec:
+            current = sec
+            continue
+        if current:
+            stripped = ln.strip()
+            if stripped:
+                buckets[current].append(stripped)
+
+    def _join_bucket(name: str) -> str:
+        return "\n".join(buckets[name]).strip()
+
+    job_summary = _join_bucket("job_summary")
+    strengths = _join_bucket("strengths")
+    gaps = _join_bucket("gaps")
+    suggestions = _join_bucket("suggestions")
+
+    # 2) Regex fallback for markdown heading blocks.
+    def _regex_extract(aliases: tuple[str, ...]) -> str:
+        escaped_aliases = [re.escape(a.upper()) for a in aliases]
+        pattern = rf"(?:^|\n)\s*#+\s*(?:{'|'.join(escaped_aliases)})\s*:?\s*\n(.*?)(?=\n\s*#+\s*[A-Za-z][^\n]*\n|\Z)"
+        m = re.search(pattern, cleaned.upper(), re.DOTALL)
+        if not m:
+            return ""
+        # Use original cleaned text slice indices from a case-insensitive search.
+        m2 = re.search(pattern, cleaned, re.IGNORECASE | re.DOTALL)
+        return m2.group(1).strip() if m2 else ""
+
+    if not job_summary:
+        job_summary = _regex_extract(section_aliases["job_summary"])
+    if not strengths:
+        strengths = _regex_extract(section_aliases["strengths"])
+    if not gaps:
+        gaps = _regex_extract(section_aliases["gaps"])
+    if not suggestions:
+        suggestions = _regex_extract(section_aliases["suggestions"])
+
+    # Final graceful fallback so UI never renders fully blank cards.
+    if not job_summary:
+        lines = [ln.strip("-*• ").strip() for ln in cleaned.splitlines() if ln.strip()]
+        if lines:
+            job_summary = " ".join(lines[:2])
+
+    # 3) Secondary heuristic: infer from bullet content by keywords.
+    if not strengths or not gaps or not suggestions:
+        lines = [ln.strip() for ln in cleaned.splitlines() if ln.strip()]
+        bullet_lines = [ln for ln in lines if re.match(r"^[-*•]\s+", ln)]
+
+        if not strengths:
+            strength_candidates = [
+                ln for ln in bullet_lines
+                if re.search(r"\b(strong|strength|experience|proficient|skilled|background)\b", ln, re.IGNORECASE)
+            ]
+            if strength_candidates:
+                strengths = "\n".join(strength_candidates[:5])
+
+        if not gaps:
+            gap_candidates = [
+                ln for ln in bullet_lines
+                if re.search(r"\b(gap|missing|lack|limited|need|improve|required)\b", ln, re.IGNORECASE)
+            ]
+            if gap_candidates:
+                gaps = "\n".join(gap_candidates[:5])
+
+        if not suggestions:
+            suggestion_candidates = [
+                ln for ln in bullet_lines
+                if re.search(r"\b(build|learn|take|complete|practice|create|certification|project)\b", ln, re.IGNORECASE)
+            ]
+            if suggestion_candidates:
+                suggestions = "\n".join(suggestion_candidates[:5])
+
+    # Final fallback text.
+    if not strengths:
+        strengths = "- Could not parse strengths from the model output."
+    if not gaps:
+        gaps = "- Could not parse gaps from the model output."
+    if not suggestions:
+        suggestions = "- Could not parse suggestions from the model output."
 
     return AnalysisResult(
         score=score,
-        job_summary=get_section("JOB SUMMARY"),
-        strengths=get_section("KEY STRENGTHS"),
-        gaps=get_section("KEY GAPS"),
-        suggestions=get_section("EXPERIENCE SUGGESTIONS"),
+        job_summary=job_summary,
+        strengths=strengths,
+        gaps=gaps,
+        suggestions=suggestions,
     )
