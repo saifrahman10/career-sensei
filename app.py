@@ -66,7 +66,7 @@ with st.sidebar:
       <div style="font-size:17px; font-weight:700; color:#1a1d2e;">Career Sensei</div>
       <div style="font-size:12px; color:#9ca3af; margin-top:3px;">AI-powered gap analysis</div>
       <div style="font-size:11px; color:#b0b5c0; margin-top:6px; line-height:1.5;">
-        Upload your resume and a job URL to see how well you fit and where to improve.
+        Upload your resume and either a job URL or pasted job description to see how well you fit and where to improve.
       </div>
     </div>
     """)
@@ -74,8 +74,31 @@ with st.sidebar:
 
     uploaded = st.file_uploader("Resume", type=["docx", "pdf"],
                                  help="Upload your resume (.docx or .pdf)")
-    job_url  = st.text_input("Job Posting URL",
-                              placeholder="https://jobs.company.com/...")
+
+    st.caption("Job input")
+    input_mode = st.radio(
+        "Choose how to provide the job posting",
+        options=["URL", "Paste description"],
+        index=0,
+        horizontal=False,
+    )
+
+    job_url = ""
+    pasted_job_desc = ""
+    if input_mode == "URL":
+        job_url = st.text_input(
+            "Job Posting URL",
+            placeholder="https://jobs.company.com/...",
+            help="We will try to fetch and extract the job description from this page.",
+        )
+    else:
+        pasted_job_desc = st.text_area(
+            "Paste job description",
+            placeholder="Paste the full job description text here (include responsibilities/requirements).",
+            height=200,
+            help="We will use your pasted text directly (no scraping).",
+        )
+
     analyze  = st.button("Analyze", use_container_width=True)
 
     st.divider()
@@ -97,46 +120,61 @@ if not uploaded:
     landing_page()
 
 else:
-    if analyze and job_url:
+    if analyze:
+        if input_mode == "URL":
+            if not job_url.strip():
+                st.error("Please enter a job URL (or switch to 'Paste description').")
+                st.stop()
+
+        if input_mode == "Paste description":
+            if not pasted_job_desc.strip():
+                st.error("Please paste a job description (or switch to 'URL').")
+                st.stop()
+
         with st.spinner("Reading resume..."):
             resume_text = extract_resume_text(uploaded)
 
         if not resume_text.strip():
             st.error("Could not extract text. Please try a DOCX or text-based PDF.")
         else:
-            with st.spinner("Fetching job description..."):
-                job_desc = fetch_job_description(job_url)
+            if input_mode == "URL":
+                with st.spinner("Fetching job description..."):
+                    job_desc = fetch_job_description(job_url)
 
-            if not job_desc:
-                st.error("Could not load that URL. Try a different job board or link.")
+                if not job_desc:
+                    st.error("Could not load that URL. Try a different job board or switch to 'Paste description'.")
+                    st.stop()
             else:
-                _ok = False
-                try:
-                    with st.spinner("Running analysis — this takes about 30 seconds..."):
-                        gap_chain, chat_chain, memory, vectorstore = build_chains(resume_text, job_desc)
-                        analysis = run_gap_analysis(gap_chain, job_desc)
-                        seed_chat_memory(memory, analysis, vectorstore, job_desc)
+                with st.spinner("Using pasted job description..."):
+                    job_desc = pasted_job_desc.strip()
 
-                    st.session_state.analysis     = analysis
-                    st.session_state.gap_chain    = gap_chain
-                    st.session_state.chat_chain   = chat_chain
-                    st.session_state.chat_history = []
-                    _ok = True
-                except Exception as e:
-                    err = str(e).lower()
-                    if "429" in err or "quota" in err or "resourceexhausted" in err.replace(" ", ""):
-                        st.error(
-                            "⚠️ We've hit our usage limit for the moment. "
-                            "Please wait a minute and try again — this usually resolves quickly."
-                        )
-                    else:
-                        st.error(
-                            "Something went wrong while running the analysis. "
-                            "Please try again in a moment."
-                        )
+            _ok = False
+            try:
+                with st.spinner("Running analysis — this takes about 30 seconds..."):
+                    gap_chain, chat_chain, memory, vectorstore = build_chains(resume_text, job_desc)
+                    analysis = run_gap_analysis(gap_chain, job_desc)
+                    seed_chat_memory(memory, analysis, vectorstore, job_desc)
 
-                if _ok:
-                    st.rerun()
+                st.session_state.analysis = analysis
+                st.session_state.gap_chain = gap_chain
+                st.session_state.chat_chain = chat_chain
+                st.session_state.chat_history = []
+                _ok = True
+            except Exception as e:
+                err = str(e).lower()
+                if "429" in err or "quota" in err or "resourceexhausted" in err.replace(" ", ""):
+                    st.error(
+                        "⚠️ We've hit our usage limit for the moment. "
+                        "Please wait a minute and try again — this usually resolves quickly."
+                    )
+                else:
+                    st.error(
+                        "Something went wrong while running the analysis. "
+                        "Please try again in a moment."
+                    )
+
+            if _ok:
+                st.rerun()
 
     if st.session_state.analysis:
         results_layout(st.session_state.analysis)

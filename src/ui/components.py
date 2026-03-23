@@ -89,6 +89,31 @@ def results_layout(analysis: AnalysisResult) -> None:
         info_card("📋", "What This Role Is About", "#6366f1",
                   f"<p class='body'>{analysis.job_summary}</p>")
 
+    # Candidate-friendly explanation of the score
+    section_header("Match Score Explained")
+    # Important: keep this HTML string unindented so Streamlit doesn't treat it as a code block.
+    score_explainer_html = (
+        "<p class='body'>"
+        "The match score is an AI estimate of how closely your resume aligns to the job requirements."
+        " It looks for evidence of fit like:"
+        "</p>"
+        "<ul>"
+        "<li>Relevant skills, tools, and keywords mentioned in the job</li>"
+        "<li>Experience level (similar responsibilities and outcomes)</li>"
+        "<li>Depth/seniority signals (how much you’ve done vs. just learned)</li>"
+        "<li>Any obvious missing areas compared to what the role asks for</li>"
+        "</ul>"
+        "<p class='body'>"
+        "<b>How to read it:</b> <b>70+</b> strong fit, <b>45–69</b> partial fit, <b>&lt;45</b> stretch role (focus on the “Key Gaps” + “Action Plan”)."
+        "</p>"
+    )
+    info_card(
+        "🧠",
+        "How we calculate the 0-100 score",
+        "#6366f1",
+        score_explainer_html,
+    )
+
     # Row 2: Strengths + Gaps
     section_header("Fit Analysis")
     col_str, col_gap = st.columns(2, gap="medium")
