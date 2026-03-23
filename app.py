@@ -12,6 +12,7 @@ This file only handles:
 
 import streamlit as st
 import os
+import traceback
 
 # ── Streamlit Cloud ChromaDB SQLite Patch ─────────────────────────────────────
 # ChromaDB requires SQLite > 3.35.0. Streamlit Cloud's default environment
@@ -37,6 +38,17 @@ from src.ui.components import (
 
 # ── Bootstrap ─────────────────────────────────────────────────────────────────
 load_dotenv()
+
+# Streamlit Community Cloud often stores secrets in `st.secrets` rather than
+# exporting them into `os.environ`. The Gemini/LangChain libs rely on the
+# `GOOGLE_API_KEY` env var, so we mirror the value into `os.environ` if needed.
+if not os.environ.get("GOOGLE_API_KEY"):
+    try:
+        if "GOOGLE_API_KEY" in st.secrets:
+            os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
+    except Exception:
+        # If secrets aren't configured, we'll just fall back to env/default creds.
+        pass
 
 st.set_page_config(
     page_title="Career Sensei",
@@ -172,6 +184,11 @@ else:
                         "Something went wrong while running the analysis. "
                         "Please try again in a moment."
                     )
+                    with st.expander("Debug details (copy/paste this)"):
+                        st.write(f"{type(e).__name__}: {e}")
+                        # Include traceback so we can pinpoint the exact failing step
+                        # (embeddings, LLM call, vectorstore init, etc.).
+                        st.code(traceback.format_exc())
 
             if _ok:
                 st.rerun()
