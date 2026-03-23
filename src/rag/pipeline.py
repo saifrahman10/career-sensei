@@ -8,6 +8,8 @@ LLM prompts, and output parsing.
 import re
 from dataclasses import dataclass
 from typing import Optional
+import tempfile
+import uuid
 
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
@@ -88,12 +90,19 @@ def build_chains(resume_text: str, job_description: str):
     resume_chunks = splitter.split_text(resume_text)
     resume_docs   = [f"[RESUME] {c}" for c in resume_chunks]
 
+    # Streamlit Community Cloud can have a corrupted/shared Chroma on-disk
+    # state across runs. Use a fresh, unique persistent directory + collection
+    # name per analysis to force Chroma to initialize its DB schema correctly.
+    persist_dir = tempfile.mkdtemp(prefix="career_sensei_chroma_")
+    collection_name = f"resume_session_{uuid.uuid4().hex}"
+
     # Embed + in-memory store
     embeddings  = GoogleGenerativeAIEmbeddings(model=EMBEDDING_MODEL)
     vectorstore = Chroma.from_texts(
         texts=resume_docs,
         embedding=embeddings,
-        collection_name="resume_session",
+        collection_name=collection_name,
+        persist_directory=persist_dir,
     )
     retriever = vectorstore.as_retriever(search_kwargs={"k": TOP_K})
 

@@ -166,6 +166,200 @@ def chatbot_section(chat_chain) -> None:
             st.rerun()
 
 
+def learning_plan_tab(chat_chain, analysis: AnalysisResult) -> None:
+    """
+    Generate and display a simple, structured learning plan.
+
+    The plan is generated on-demand (button click) and can be exported as a
+    Word document.
+    """
+
+    # Session-state keys (set if missing so this function can be called safely)
+    if "learning_plan_markdown" not in st.session_state:
+        st.session_state.learning_plan_markdown = None
+    if "learning_plan_weeks" not in st.session_state:
+        st.session_state.learning_plan_weeks = None
+    if "learning_plan_hours" not in st.session_state:
+        st.session_state.learning_plan_hours = None
+    if "learning_plan_docx_bytes" not in st.session_state:
+        st.session_state.learning_plan_docx_bytes = None
+
+    st.divider()
+    section_header("Learning Plan")
+
+    col_a, col_b = st.columns(2, gap="medium")
+    with col_a:
+        weeks = st.number_input(
+            "Duration (weeks)",
+            min_value=1,
+            max_value=24,
+            value=int(st.session_state.learning_plan_weeks or 4),
+            step=1,
+        )
+    with col_b:
+        hours_per_week = st.number_input(
+            "Hours/week",
+            min_value=1,
+            max_value=40,
+            value=int(st.session_state.learning_plan_hours or 5),
+            step=1,
+        )
+
+    generate = st.button("Generate Learning Plan", use_container_width=True)
+
+    def _score_label(score: int) -> str:
+        if score >= 70:
+            return "strong fit"
+        if score >= 45:
+            return "partial fit"
+        return "stretch role"
+
+    def _markdown_to_docx_bytes(markdown_text: str, doc_title: str) -> bytes:
+        """
+        Convert a restricted markdown subset into a Word document.
+
+        Supported:
+        - Headings: # / ## / ###
+        - Bullets: lines starting with '- '
+        - Paragraphs: everything else
+        """
+        from io import BytesIO
+        from docx import Document
+        from docx.shared import Pt
+
+        doc = Document()
+
+        # Make it look professional and consistent.
+        style = doc.styles["Normal"]
+        style.font.name = "Calibri"
+        style.font.size = Pt(11)
+
+        doc.add_heading(doc_title, level=0)
+
+        score = analysis.score if analysis.score is not None else 0
+        doc.add_paragraph(f"Match score: {score}/100 ({_score_label(score)})")
+        if analysis.job_summary:
+            doc.add_paragraph(f"Role summary: {analysis.job_summary}")
+
+        doc.add_paragraph("")  # spacer
+
+        for raw_line in markdown_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+
+            # Headings
+            if line.startswith("# "):
+                doc.add_heading(line[2:].strip(), level=0)
+                continue
+            if line.startswith("## "):
+                doc.add_heading(line[3:].strip(), level=1)
+                continue
+            if line.startswith("### "):
+                doc.add_heading(line[4:].strip(), level=2)
+                continue
+
+            # Bullets
+            if line.startswith("- "):
+                doc.add_paragraph(f"• {line[2:].strip()}")
+                continue
+
+            # Paragraphs (strip simple bold markers)
+            cleaned = line.replace("**", "")
+            doc.add_paragraph(cleaned)
+
+        buf = BytesIO()
+        doc.save(buf)
+        return buf.getvalue()
+
+    if generate:
+        # In deployed environments, the model call sometimes fails; show details
+        # so users never get stuck with a generic message.
+        if not getattr(analysis, "gaps", "").strip():
+            st.error("Missing gap information. Please run analysis again.")
+            return
+
+        prompt = f"""You are a career coach. Create a simple, structured learning plan based on the candidate's resume-vs-job gap analysis.
+
+Match score: {analysis.score}/100 ({_score_label(analysis.score or 0)}).
+Duration requested: {weeks} week(s).
+Time available: about {hours_per_week} hours per week.
+
+Top gaps:
+{analysis.gaps}
+
+Experience suggestions (ideas to close gaps):
+{analysis.suggestions}
+
+Constraints:
+- Keep it candidate-friendly and practical.
+- Make it easy to follow (clear weekly blocks).
+- Each week should include:
+  1) Focus (1 sentence)
+  2) Tasks (2-4 bullets)
+  3) Deliverables (1-3 bullets that prove progress)
+  4) Resume updates (1-2 copy/paste bullets)
+- Output in Markdown with exactly this structure:
+
+# Learning Plan for this Role
+## Top 3 Gaps to Prioritize
+- ...
+## Learning Roadmap ({weeks} weeks)
+### Week 1
+**Focus:** ...
+**Tasks:**
+- ...
+**Deliverables (done looks like):**
+- ...
+**Resume updates (copy/paste bullets):**
+- ...
+### Week 2
+(repeat for each week up to Week {weeks})
+
+Important: Do not include any extra commentary outside the Markdown structure.
+"""
+
+        try:
+            from src.rag.pipeline import run_chat
+
+            with st.spinner("Generating your learning plan..."):
+                plan_md = run_chat(chat_chain, prompt)
+
+            st.session_state.learning_plan_markdown = plan_md
+            st.session_state.learning_plan_weeks = weeks
+            st.session_state.learning_plan_hours = hours_per_week
+            st.session_state.learning_plan_docx_bytes = None  # regenerate on download
+
+        except Exception as e:
+            st.error("Something went wrong while generating the learning plan.")
+            with st.expander("Debug details (copy/paste this)"):
+                st.write(f"{type(e).__name__}: {e}")
+
+    if st.session_state.learning_plan_markdown:
+        st.markdown(st.session_state.learning_plan_markdown)
+
+        want_new = (
+            st.session_state.learning_plan_weeks != weeks
+            or st.session_state.learning_plan_hours != hours_per_week
+        )
+        if want_new:
+            st.caption("Tip: click “Generate Learning Plan” again to match your new weeks/hours.")
+
+        if st.session_state.learning_plan_docx_bytes is None:
+            st.session_state.learning_plan_docx_bytes = _markdown_to_docx_bytes(
+                st.session_state.learning_plan_markdown,
+                "Career Sensei Learning Plan",
+            )
+
+        st.download_button(
+            label="Download as Word (.docx)",
+            data=st.session_state.learning_plan_docx_bytes,
+            file_name="Career_Sensei_Learning_Plan.docx",
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            use_container_width=True,
+        )
+
+
 def landing_page() -> None:
     st.html("""
     <div style="text-align:center; padding:90px 20px 0;">

@@ -13,6 +13,7 @@ This file only handles:
 import streamlit as st
 import os
 import traceback
+import shutil
 
 # ── Streamlit Cloud ChromaDB SQLite Patch ─────────────────────────────────────
 # ChromaDB requires SQLite > 3.35.0. Streamlit Cloud's default environment
@@ -33,6 +34,7 @@ from src.ui.components import (
     landing_page,
     waiting_card,
     results_layout,
+    learning_plan_tab,
     chatbot_section,
 )
 
@@ -64,6 +66,11 @@ _defaults = {
     "gap_chain":    None,
     "chat_chain":   None,
     "chat_history": [],
+    "chroma_persist_dir": None,
+    "learning_plan_markdown": None,
+    "learning_plan_weeks": None,
+    "learning_plan_hours": None,
+    "learning_plan_docx_bytes": None,
 }
 for key, val in _defaults.items():
     if key not in st.session_state:
@@ -163,6 +170,17 @@ else:
             _ok = False
             try:
                 with st.spinner("Running analysis — this takes about 30 seconds..."):
+                    # Cleanup any previous Chroma temp directory so Chroma doesn't
+                    # reuse corrupted on-disk state on Streamlit Community Cloud.
+                    prev_dir = st.session_state.get("chroma_persist_dir")
+                    if prev_dir:
+                        try:
+                            shutil.rmtree(prev_dir, ignore_errors=True)
+                        except Exception:
+                            # Cleanup should never block analysis.
+                            pass
+                    st.session_state.chroma_persist_dir = None
+
                     gap_chain, chat_chain, memory, vectorstore = build_chains(resume_text, job_desc)
                     analysis = run_gap_analysis(gap_chain, job_desc)
                     seed_chat_memory(memory, analysis, vectorstore, job_desc)
@@ -171,6 +189,14 @@ else:
                 st.session_state.gap_chain = gap_chain
                 st.session_state.chat_chain = chat_chain
                 st.session_state.chat_history = []
+                # Reset learning plan so it matches the newly uploaded resume/job.
+                st.session_state.learning_plan_markdown = None
+                st.session_state.learning_plan_weeks = None
+                st.session_state.learning_plan_hours = None
+                st.session_state.learning_plan_docx_bytes = None
+                # Keep track of the Chroma persist directory so we can clean it up
+                # on the next analysis run (Streamlit Community Cloud).
+                st.session_state.chroma_persist_dir = getattr(vectorstore, "_persist_directory", None)
                 _ok = True
             except Exception as e:
                 err = str(e).lower()
@@ -194,7 +220,12 @@ else:
                 st.rerun()
 
     if st.session_state.analysis:
-        results_layout(st.session_state.analysis)
+        tab_analysis, tab_learning = st.tabs(["Analysis", "Learning Plan"])
+        with tab_analysis:
+            results_layout(st.session_state.analysis)
+        with tab_learning:
+            learning_plan_tab(st.session_state.chat_chain, st.session_state.analysis)
+
         chatbot_section(st.session_state.chat_chain)
     elif not analyze:
         waiting_card()
