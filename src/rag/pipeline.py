@@ -25,7 +25,9 @@ from langchain.schema import HumanMessage, AIMessage
 EMBEDDING_MODEL  = "models/gemini-embedding-001"
 # Use a stable default model; preview or older variants can be revoked for new users.
 # Allow override via env var so model changes do not require code edits.
-LLM_MODEL        = os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite")
+# Gemini 3.1 Flash Lite is available under a preview model id in many accounts.
+# Allow override via env var so model changes do not require code edits.
+LLM_MODEL        = os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite-preview")
 CHUNK_SIZE       = 600
 CHUNK_OVERLAP    = 40
 TOP_K            = 8
@@ -39,24 +41,38 @@ Resume sections:
 Job Description:
 {question}
 
-Output EXACTLY these five sections with these exact headers. Be specific to the actual candidate and role:
+Output EXACTLY these five sections with these exact headers.
+Be specific to the actual candidate and role, and make the bullets genuinely actionable (not generic).
 
 ## MATCH SCORE
 [integer 0-100 only, nothing else]
 
 ## JOB SUMMARY
-[2-3 sentences: what this role is about, the company context, and the ideal candidate profile]
+2-3 sentences: summarize what the role is really about, the core outcomes, and the ideal candidate profile.
 
 ## KEY STRENGTHS
-[3-4 bullet points of the candidate's genuine strengths that apply to this role]
+3-4 bullets, ordered by impact.
+Each bullet must include:
+1) resume evidence (a specific skill/experience),
+2) how it maps to the job requirement,
+3) why it matters for success in this role.
 
 ## KEY GAPS
-[3-5 bullet points of concrete missing skills, experience, or qualifications]
+3-5 bullets, ordered by impact.
+Each bullet must include:
+1) the missing/weak capability (be concrete),
+2) what the job expects instead,
+3) the likely risk/impact if you don't address it.
 
 ## EXPERIENCE SUGGESTIONS
-[3-4 very specific, actionable things the candidate can do — projects, certifications, or courses — to close the top gaps.]
+3-4 bullets, ordered to help you land interviews first.
+Each bullet must include:
+1) a specific action (project, certification, course, or practice),
+2) a concrete deliverable you can add to your resume/portfolio,
+3) a suggested timeframe (roughly: 1-2 weeks / 3-4 weeks / 6-8 weeks).
 
-Each bullet: ONE line only. No intro text before the first header."""
+Each bullet: ONE line only (keep it compact but specific).
+No intro text before the first header."""
 
 
 # ── Data model ────────────────────────────────────────────────────────────────
